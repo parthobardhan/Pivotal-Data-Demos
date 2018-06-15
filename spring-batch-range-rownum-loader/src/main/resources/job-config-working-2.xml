@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch http://www.springframework.org/schema/batch/spring-batch.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<job id="partitionJdbcJob19" restartable="true"
+		xmlns="http://www.springframework.org/schema/batch">
+		<step id="step">
+			<partition step="step1" partitioner="partitioner">
+				<handler grid-size="${batch.grid.size}" task-executor="taskExecutor" />
+			</partition>
+		</step>
+	</job>
+
+	<bean id="partitioner" class="com.example.demo.RownumPartitioner">
+		<property name="dataSource" ref="dataSource" />
+		<property name="table" value="PYMT_TOK" />
+		<property name="column" value="TOK_REF_ID" />
+	</bean>
+
+
+	<bean id="stepScope" class="org.springframework.batch.core.scope.StepScope">
+		<property name="autoProxy" value="true" />
+	</bean>
+
+	<bean id="taskExecutor" class="org.springframework.core.task.SimpleAsyncTaskExecutor" />
+
+	<step id="step1" xmlns="http://www.springframework.org/schema/batch">
+		<tasklet>
+			<chunk reader="itemReader" writer="flatFileItemWriter"
+				commit-interval="100" />
+		</tasklet>
+	</step>
+
+	<bean id="itemReader" scope="step" autowire-candidate="false"
+		class="org.springframework.batch.item.database.JdbcPagingItemReader">
+		<property name="dataSource" ref="dataSource" />
+		<property name="pageSize" value="100" />
+		<property name="rowMapper">
+			<bean class="com.example.demo.CustomTokenPaymentRowMapper" />
+		</property>
+		<property name="queryProvider">
+			<!-- <bean -->
+			<!-- class="org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean"> -->
+			<!-- <property name="dataSource" ref="dataSource" /> -->
+			<!-- <property name="fromClause" value="(SELECT TOK_REF_ID, TOK_NBR, TOK_EXP_MY_DT, 
+				SHARD_SVC_ID, TOK_SEQ_NBR, TOK_PAN_ID, TOK_ID, TOK_REUSE_CTR, row_number() 
+				over (order by TOK_REF_ID asc) rn from PYMT_TOK)" /> -->
+			<!-- <property name="selectClause" -->
+			<!-- value="TOK_REF_ID, TOK_NBR, TOK_EXP_MY_DT, SHARD_SVC_ID, TOK_SEQ_NBR, 
+				TOK_PAN_ID, TOK_ID, TOK_REUSE_CTR" /> -->
+			<!-- <property name="sortKeys"> -->
+			<!-- <map> -->
+			<!-- <entry key="rn" value="ASCENDING" /> -->
+			<!-- </map> -->
+			<!-- </property> -->
+			<!-- <property name="whereClause" -->
+			<!-- value="rn &gt;= :start and rn &lt;= :end" /> -->
+			<!-- </bean> -->
+			<bean
+				class="org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean">
+				<property name="dataSource" ref="dataSource" />
+				<property name="fromClause" value="(SELECT TOK_REF_ID, TOK_NBR, TOK_EXP_MY_DT, 
+				SHARD_SVC_ID, TOK_SEQ_NBR, TOK_PAN_ID, TOK_ID, TOK_REUSE_CTR, row_number() 
+				over (order by TOK_REF_ID asc) rn  FROM PYMT_TOK)" />
+				<property name="selectClause"
+					value="TOK_REF_ID, TOK_NBR, TOK_EXP_MY_DT, SHARD_SVC_ID, TOK_SEQ_NBR, TOK_PAN_ID, TOK_ID, TOK_REUSE_CTR, rn" />
+				<property name="sortKeys">
+					<map>
+						<entry key="rn" value="ASCENDING" />
+					</map>
+				</property>
+				<property name="whereClause"
+					value="rn &gt;= :start and rn &lt;= :end" />
+			</bean>
+		</property>
+		<property name="parameterValues">
+			<map>
+				<entry key="start" value="#{stepExecutionContext[startRowNumber]}" />
+				<entry key="end" value="#{stepExecutionContext[endRowNumber]}" />
+			</map>
+		</property>
+	</bean>
+
+
+	<bean id="flatFileItemWriter" class="org.springframework.batch.item.file.FlatFileItemWriter"
+		scope="step">
+		<property name="resource"
+			value="file:csv/output/person.data#{stepExecutionContext[startRowNumber]}-#{stepExecutionContext[endRowNumber]}.csv" />
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names"
+							value="tokenRefId, tokenNumber, tokenExpMonthDate, shardSvcId, tokenSeqNumber, tokenPanId, tokenId, tokenReuseCounter" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+	</bean>
+</beans>
